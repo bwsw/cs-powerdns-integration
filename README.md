@@ -62,6 +62,8 @@ nslookup -q=A -port=153 vm-name.domain-name 10.252.2.4
 nslookup -q=AAAA -port=153 vm-name.domain-name 10.252.2.4
 ```
 
+> You can modify records further as they are not modified longer. As for current implementation, modified records are persistent and are not removed upon VM removal.
+
 **Scale**. Deploy second PowerDNS. Use another ```KAFKA_GROUP``` value for second exporter.
 
 **Delegate**. Add necessary NS records into zone, delegate it, add records in RIPE/IANA/APNIC/etc DB. 

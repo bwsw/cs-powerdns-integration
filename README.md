@@ -2,6 +2,11 @@
 
 The service creates A, AAAA and PTR records in PowerDNS for newly created virtual machines and removes those records when VMs are being removed. The service uses PowerDNS with MySQL backend. Currently only records for ip/ipv6 directly attached to VM is supported. Domain suffixes defined for CloudStack domains are supported. Resulting A, AAAA records a constructed as vm-name.domain-suffix-name, where ```domain-suffix-name``` is a domain suffix defined for CloudStack domain.
 
+## Supported CS versions
+
+Next CS versions are known to work:
+ * CloudStack 4.11.1
+
 ## Rationale
 
 CloudStack VR maintains DNS A records for VMs but since VR is a ephemeral entity which can be removed and recreated, which IP addresses can be changed, it's inconvenient to use it for zone delegation. Also, it's difficult to pair second DNS server with it as it requires VR hacking. So, to overcome those difficulties and provide external users with FQDN access to VMs we implemented the solution.

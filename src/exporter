@@ -122,8 +122,10 @@ def create_new_records(m):
             c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, ptr_ip))
 
         if ip6_address is not None:
+            pref_len = int(ip6_cidr.split('/')[1])
+            pref_cut = (128 - pref_len) / 4 * 2 + 1
             ptr6_zone = ipaddress.IPv6Network(ip6_cidr).reverse_pointer
-            ptr6_zone = ptr6_zone.split('/')[1][33:]
+            ptr6_zone = ptr6_zone.split('/')[1][pref_cut:]
             logging.info(ptr6_zone)
 
             c.execute("SELECT id FROM domains WHERE name = %s", (ptr6_zone, ))

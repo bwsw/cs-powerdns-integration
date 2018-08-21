@@ -58,7 +58,7 @@ View logs with:
 docker logs -f dns-exporter
 ```
 
-**Test it**. Create VM and ensure appropriate records are accessible.
+**Test it**. Create VM and ensure appropriate records are accessible:
 
 ```
 nslookup -q=PTR -port=153 <vm_ipv4> 10.252.2.4

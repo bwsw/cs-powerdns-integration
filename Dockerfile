@@ -17,7 +17,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y -q python-pip python-dev l
 RUN pip install --upgrade pip
 RUN pip install kafka-python
 RUN pip install cs
-
+RUN pip install ipaddress
 
 COPY ./src /opt
 

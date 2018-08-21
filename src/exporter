@@ -1,10 +1,10 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
 
+import logging
 import sys
 import datetime
 import re
-import libvirt
 import json
 import os
 import traceback
@@ -15,13 +15,12 @@ import MySQLdb
 from cs import CloudStack
 import ipaddress
 
-
+FORMAT = '%(asctime)-15s %(message)s'
+logging.basicConfig(format=FORMAT, stream=sys.stderr, level=logging.INFO)
 
 kafka_bootstrap_hosts = os.environ["KAFKA_BOOTSTRAP"]
 kafka_topic = os.environ["KAFKA_TOPIC"]
 kafka_group = os.environ["KAFKA_GROUP"]
-
-debug = os.environ["DEBUG"]
 
 mysql_pdns_name = os.environ['MYSQL_PDNS_NAME']
 mysql_pdns_user = os.environ['MYSQL_PDNS_USER']
@@ -64,7 +63,7 @@ def create_new_records(m):
         job_result = job_result.replace("org.apache.cloudstack.api.response.UserVmResponse/virtualmachine/", "", 1)
         job_result = json.loads(job_result)
         vm_name = job_result['name'].lower()
-	vm_uuid = job_result['id'].lower()
+        vm_uuid = job_result['id'].lower()
         domain = cs.listDomains(id =job_result['domainid'])
         try:
             domain = domain ['domain'][0]['networkdomain'].lower()
@@ -81,10 +80,9 @@ def create_new_records(m):
             ip6_cidr = nic0['ip6cidr']
         fqdn = "%s.%s" % (vm_name, domain)
 
-        if debug == "true":
-            print "VM: %s.%s" % (vm_name, domain)
-            print "IPv4:", ip_address
-            print "IPv6:", ip6_address
+        logging.info("VM: %s.%s" % (vm_name, domain))
+        logging.info("IPv4: %s" % ip_address)
+        logging.info("IPv6: %s" % ip6_address)
 
         c = pdns_conn.cursor()
         c.execute("DELETE FROM records WHERE name = %s", (fqdn,))
@@ -111,8 +109,8 @@ def create_new_records(m):
         ip_parts.reverse()
         ptr_zone = ".".join(ip_parts[1:]) + ".in-addr.arpa"
         ptr_ip = ".".join(ip_parts) + ".in-addr.arpa"
-        print ptr_zone
-        print ptr_ip
+        logging.info(ptr_zone)
+        logging.info(ptr_ip)
 
         # Delete old records
         c.execute("DELETE FROM records WHERE name = %s", (ptr_ip,))
@@ -122,21 +120,21 @@ def create_new_records(m):
         if row is not None:
             domain_id = row[0]
             c.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, auth, domain_id) VALUES (%s, 'PTR', %s, %s, 0, UNIX_TIMESTAMP(), 1, %s)""", (ptr_ip, fqdn, ttl, domain_id))
-	    c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, ptr_ip))
+            c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, ptr_ip))
 
         if ip6_address is not None:
             ptr6_zone = ipaddress.IPv6Network(ip6_cidr).reverse_pointer
             ptr6_zone = ptr6_zone.split('/')[1][33:]
-            print ptr6_zone
+            logging.info(ptr6_zone)
 
             c.execute("SELECT id FROM domains WHERE name = %s", (ptr6_zone, ))
             row = c.fetchone()
             if row is not None:
                 domain_id = row[0]
                 ptr6_ip = ipaddress.ip_address(ip6_address).reverse_pointer
-                print ptr6_ip
+                logging.info(ptr6_ip)
                 c.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, auth, domain_id) VALUES (%s, 'PTR', %s, %s, 0, UNIX_TIMESTAMP(), 1, %s)""", (ptr6_ip, fqdn, ttl, domain_id))
-		c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, ptr6_ip))
+                c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, ptr6_ip))
 
 
 def delete_removed_records(m):
@@ -146,14 +144,14 @@ def delete_removed_records(m):
     event_field  = "event"
     event_value  = "VM.DESTROY"
     if vm_field in m and status_field in m and event_field in m and m[status_field].lower() == status_value.lower() and m[event_field].lower() == event_value.lower():
-	vm_uuid = m[vm_field].lower()
-	c = pdns_conn.cursor()
-	c.execute("SELECT record FROM cs_mapping where uuid = %s", (vm_uuid,))
-	rows = c.fetchall()
-	for r in rows:
-		print "Deleting DNS entries: ", r[0]
-		c.execute("DELETE FROM records WHERE name = %s", r)
-	c.execute("DELETE FROM cs_mapping WHERE uuid = %s", (vm_uuid,))
+        vm_uuid = m[vm_field].lower()
+        c = pdns_conn.cursor()
+        c.execute("SELECT record FROM cs_mapping where uuid = %s", (vm_uuid,))
+        rows = c.fetchall()
+        for r in rows:
+            logging.info("Deleting DNS entries: %s" % r[0])
+            c.execute("DELETE FROM records WHERE name = %s", r)
+        c.execute("DELETE FROM cs_mapping WHERE uuid = %s", (vm_uuid,))
 
 for m in consumer:
     m = m.value

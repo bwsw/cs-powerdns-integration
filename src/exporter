@@ -1,0 +1,161 @@
+#!/usr/bin/python
+# -*- coding: UTF-8 -*-
+
+import sys
+import datetime
+import re
+import libvirt
+import json
+import os
+import traceback
+from datetime import datetime
+from kafka import KafkaConsumer
+from kafka.errors import KafkaError
+import MySQLdb
+from cs import CloudStack
+import ipaddress
+
+
+
+kafka_bootstrap_hosts = os.environ["KAFKA_BOOTSTRAP"]
+kafka_topic = os.environ["KAFKA_TOPIC"]
+kafka_group = os.environ["KAFKA_GROUP"]
+
+debug = os.environ["DEBUG"]
+
+mysql_pdns_name = os.environ['MYSQL_PDNS_NAME']
+mysql_pdns_user = os.environ['MYSQL_PDNS_USER']
+mysql_pdns_password = os.environ['MYSQL_PDNS_PASSWORD']
+mysql_pdns_host = os.environ['MYSQL_PDNS_HOST']
+mysql_pdns_port = int(os.environ['MYSQL_PDNS_PORT'])
+
+cs_endpoint = os.environ['CS_ENDPOINT']
+cs_api_key = os.environ['CS_API_KEY']
+cs_secret_key = os.environ['CS_SECRET_KEY']
+
+pdns_conn = MySQLdb.connect(host = mysql_pdns_host, port = mysql_pdns_port,
+                            user = mysql_pdns_user, passwd = mysql_pdns_password, db = mysql_pdns_name)
+
+pdns_conn.autocommit(True)
+
+pdns_cursor = pdns_conn.cursor()
+pdns_cursor.execute("CREATE TABLE IF NOT EXISTS cs_mapping(uuid CHAR(36), record VARCHAR(255), UNIQUE(uuid, record))");
+
+consumer = KafkaConsumer(kafka_topic,
+                         group_id = kafka_group,
+                         bootstrap_servers = kafka_bootstrap_hosts.split(","),
+                         value_deserializer = lambda m: json.loads(m.decode('utf8')))
+
+cs = CloudStack(endpoint = cs_endpoint,
+                key = cs_api_key,
+                secret = cs_secret_key)
+
+def create_new_records(m):
+    mct = "commandEventType"
+    mcv = "VM.CREATE"
+    ms = "status"
+    msv = "SUCCEEDED"
+    jr = "jobResult"
+
+    ttl = 60
+
+    if mct in m and ms in m and m[mct].lower() == mcv.lower() and m[ms].lower() == msv.lower():
+        job_result = m[jr]
+        job_result = job_result.replace("org.apache.cloudstack.api.response.UserVmResponse/virtualmachine/", "", 1)
+        job_result = json.loads(job_result)
+        vm_name = job_result['name'].lower()
+	vm_uuid = job_result['id'].lower()
+        domain = cs.listDomains(id =job_result['domainid'])
+        try:
+            domain = domain ['domain'][0]['networkdomain'].lower()
+        except:
+            return
+        nic0 = job_result['nic'][0]
+        if 'ipaddress' not in nic0:
+            return
+        ip_address = nic0['ipaddress']
+        ip6_address = None
+        ip6_cidr = None
+        if 'ip6address' in nic0:
+            ip6_address = nic0['ip6address']
+            ip6_cidr = nic0['ip6cidr']
+        fqdn = "%s.%s" % (vm_name, domain)
+
+        if debug == "true":
+            print "VM: %s.%s" % (vm_name, domain)
+            print "IPv4:", ip_address
+            print "IPv6:", ip6_address
+
+        c = pdns_conn.cursor()
+        c.execute("DELETE FROM records WHERE name = %s", (fqdn,))
+
+        # Add A, AAAA records
+        c.execute("DELETE FROM records WHERE name = %s", (fqdn,))
+
+        c.execute("SELECT id FROM domains WHERE name = %s", (domain, ))
+        row = c.fetchone()
+        if row is not None:
+            domain_id = row[0]
+
+            c.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'A', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (fqdn, ip_address, ttl, vm_name, domain_id))
+
+            if ip6_address is not None:
+                c.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'AAAA', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (fqdn, ip6_address, ttl, vm_name, domain_id))
+
+        c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, fqdn))
+
+
+        # Add PTR records
+        # build ptr for ip address
+        ip_parts = ip_address.split('.')
+        ip_parts.reverse()
+        ptr_zone = ".".join(ip_parts[1:]) + ".in-addr.arpa"
+        ptr_ip = ".".join(ip_parts) + ".in-addr.arpa"
+        print ptr_zone
+        print ptr_ip
+
+        # Delete old records
+        c.execute("DELETE FROM records WHERE name = %s", (ptr_ip,))
+
+        c.execute("SELECT id FROM domains WHERE name = %s", (ptr_zone, ))
+        row = c.fetchone()
+        if row is not None:
+            domain_id = row[0]
+            c.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, auth, domain_id) VALUES (%s, 'PTR', %s, %s, 0, UNIX_TIMESTAMP(), 1, %s)""", (ptr_ip, fqdn, ttl, domain_id))
+	    c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, ptr_ip))
+
+        if ip6_address is not None:
+            ptr6_zone = ipaddress.IPv6Network(ip6_cidr).reverse_pointer
+            ptr6_zone = ptr6_zone.split('/')[1][33:]
+            print ptr6_zone
+
+            c.execute("SELECT id FROM domains WHERE name = %s", (ptr6_zone, ))
+            row = c.fetchone()
+            if row is not None:
+                domain_id = row[0]
+                ptr6_ip = ipaddress.ip_address(ip6_address).reverse_pointer
+                print ptr6_ip
+                c.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, auth, domain_id) VALUES (%s, 'PTR', %s, %s, 0, UNIX_TIMESTAMP(), 1, %s)""", (ptr6_ip, fqdn, ttl, domain_id))
+		c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, ptr6_ip))
+
+
+def delete_removed_records(m):
+    vm_field     = "VirtualMachine"
+    status_field = "status"
+    status_value = "Completed"
+    event_field  = "event"
+    event_value  = "VM.DESTROY"
+    if vm_field in m and status_field in m and event_field in m and m[status_field].lower() == status_value.lower() and m[event_field].lower() == event_value.lower():
+	vm_uuid = m[vm_field].lower()
+	c = pdns_conn.cursor()
+	c.execute("SELECT record FROM cs_mapping where uuid = %s", (vm_uuid,))
+	rows = c.fetchall()
+	for r in rows:
+		print "Deleting DNS entries: ", r[0]
+		c.execute("DELETE FROM records WHERE name = %s", r)
+	c.execute("DELETE FROM cs_mapping WHERE uuid = %s", (vm_uuid,))
+
+for m in consumer:
+    m = m.value
+    create_new_records(m)
+    delete_removed_records(m)

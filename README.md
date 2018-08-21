@@ -62,7 +62,7 @@ nslookup -q=A -port=153 vm-name.domain-name 10.252.2.4
 nslookup -q=AAAA -port=153 vm-name.domain-name 10.252.2.4
 ```
 
-**Scale**. Deploy second PowerDNS (if separate DB is used). Use another ```KAFKA_GROUP``` value for second exporter.
+**Scale**. Deploy second PowerDNS. Use another ```KAFKA_GROUP``` value for second exporter.
 
 **Delegate**. Add necessary NS records into zone, delegate it, add records in RIPE/IANA/APNIC/etc DB. 
 

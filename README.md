@@ -25,6 +25,8 @@ docker run -d --name pdns-master
             bwsw/docker-pdns
 ```
 
+> Don't create ```pdns``` database. The container will do it. Just GRANT required privileges to ```dns``` user.
+
 **Create necessary zones in PowerDNS**. Zones which will be filled must be created in PowerDNS. If a zone is absent for certain DNS suffix, those records will not be added into PowerDNS. PTR zones for IPv4 and IPv6 must be created as well. Use Poweradmin for management.
 
 **Deploy exporter container**. Exporter is provided in the form of Docker image, which can be started in seconds:

@@ -33,7 +33,7 @@ docker run -d --name pdns-master
 
 ```bash
 docker run --restart=always -d --name dns-exporter  \
-	       -e KAFKA_BOOTSTRAP=10.252.2.4:9092,10.252.2.3:9092,10.252.2.2:9092 \
+	-e KAFKA_BOOTSTRAP=10.252.2.4:9092,10.252.2.3:9092,10.252.2.2:9092 \
         -e KAFKA_TOPIC=cs-events \
         -e KAFKA_GROUP=export-pdns-1 \
         -e CS_ENDPOINT=https://server/client/api \

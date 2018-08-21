@@ -1,154 +1,77 @@
-# Pulse Plugin Sensor (Kafka Edition)
+# CloudStack Event-based Integration for PowerDNS
 
-The purpose of the container is to monitor remote libvirt KVM hypervisor host and gather the information about VM resource usage. It is implemented in python2.7 with libvirt. It stores collected statistics to a kafka topic.
+The service creates A, AAAA and PTR records in PowerDNS for newly created virtual machines and removes those records when VMs are being removed. The service uses PowerDNS with MySQL backend. Currently only records for ip/ipv6 directly attached to VM is supported. Domain suffixes defined for CloudStack domains are supported. Resulting A, AAAA records a constructed as vm-name.domain-suffix-name, where ```domain-suffix-name``` is a domain suffix defined for CloudStack domain.
 
-Currently it collects next metrics: 
- - Host: CPU statistics, RAM statistics
- - Virtual machines: cpuTime, RAM usage, disk IO, network IO
+## Supported CS versions
 
-Features:
- - purposed for KVM hypervisor
- - tested with block devices located in files (native for Apache Cloudstack and NFS storage)
- - bundled as easy to use Docker container (one container per one virtualization host)
- 
- Known to work with:
- - Apache Cloudstack 4.3 with KVM hypervisor and NFS primary storage
- - Apache Cloudstack 4.9 with KVM hypervisor and NFS primary storage
- - Apache Cloudstack 4.11.1 with KVM hypervisor and local primary storage
+Next CS versions are known to work:
+ * CloudStack 4.11.1
 
-Usage:
+## Rationale
 
-```
-# create topic
-docker run --rm -it wurstmeister/kafka:1.0.0 sh -c "JMX_PORT= /opt/kafka/bin/kafka-topics.sh --create --zookeeper zk1:2181 --replication-factor 3 --partitions 1 --topic kvm-metrics
+CloudStack VR maintains DNS A records for VMs but since VR is a ephemeral entity which can be removed and recreated, which IP addresses can be changed, it's inconvenient to use it for zone delegation. Also, it's difficult to pair second DNS server with it as it requires VR hacking. So, to overcome those difficulties and provide external users with FQDN access to VMs we implemented the solution.
 
-# deploy service
-docker run --restart=always -d --name 10.252.1.11 \
-             -v /root/.ssh:/root/.ssh \
-             -e PAUSE=10 \
-             -e KAFKA_BOOTSTRAP=host1:9092,host2:9092,host3:9092 \
-             -e KAFKA_TOPIC=kvm-metrics \
-             -e GATHER_HOST_STATS=true
-             -e DEBUG=true \
-             -e KVM_HOST=qemu+ssh://root@10.252.1.11/system \
-             bwsw/cs-pulse-sensor-kafka
+## How to use it
 
-# test it
-docker run --rm -it wurstmeister/kafka:1.0.0 sh -c "JMX_PORT= /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server host1:9092,host2:9092,host3:9092 --topic kvm-metrics --max-messages 1000 --from-beginning"
+**Deploy CloudStack with Kafka Event Bus**. Take a look at official [guide](http://docs.cloudstack.apache.org/projects/cloudstack-administration/en/4.11/events.html).
+
+**Deploy PowerDNS with MySQL backend, and (optionally) PowerAdmin**. Quickly, you can use simple PowerDNS packed Docker image:
+
+```bash
+docker run -d --name pdns-master 
+            -e MYSQL_HOST=10.252.2.1 \
+            -e MYSQL_PORT=3306 \
+            -e MYSQL_USER=dns \
+            -e DB_ENV_MYSQL_ROOT_PASSWORD=changeme \
+            -e MYSQL_DB=pdns \
+            -p 153:53/udp \
+            -p 153:53 \
+            -p 127.0.0.1:8081:80 \
+            bwsw/docker-pdns
 ```
 
-## Container Parameters
+> Don't create ```pdns``` database. The container will do it. Just GRANT required privileges to ```dns``` user.
 
-Container supports next configuration parameters:
+**Create necessary zones in PowerDNS**. Zones which will be filled must be created in PowerDNS. If a zone is absent for certain DNS suffix, those records will not be added into PowerDNS. PTR zones for IPv4 and IPv6 must be created as well. Use Poweradmin for management.
 
-- KVM_HOST - fqdn for libvrt KVM connection line
-- PAUSE - interval between metering
-- KAFKA_BOOTSTRAP - comma separated list of kafka bootstrap servers
-- KAFKA_TOPIC - topic where to place data
-- GATHER_HOST_STATS - if to collect information about a hypervisor host
-- DEBUG - print or avoid JSON dumps inside docker container (useful for troubleshooting in attached mode)
+**Deploy exporter container**. Exporter is provided in the form of Docker image, which can be started in seconds:
 
-## Data structure
-
-All series are stored in InfluxDB compatible format. Just read them from Kafka and import into InfluxDB.
-
-Virtualization node series stored into kafka look like:
-
-```
-[
-    {
-        "fields": {
-            "freeMem": 80558,
-            "idle": 120492574,
-            "iowait": 39380,
-            "kernel": 1198652,
-            "totalMem": 128850,
-            "user": 6416940
-        },
-        "measurement": "nodeInfo",
-        "tags": {
-            "vmHost": "qemu+ssh://root@10.252.1.33/system"
-        },
-        "time": "2018-08-17T09:00:35Z"
-    }
-]
+```bash
+docker run --restart=always -d --name dns-exporter  \
+	-e KAFKA_BOOTSTRAP=10.252.2.4:9092,10.252.2.3:9092,10.252.2.2:9092 \
+        -e KAFKA_TOPIC=cs-events \
+        -e KAFKA_GROUP=export-pdns-1 \
+        -e CS_ENDPOINT=https://server/client/api \
+        -e CS_API_KEY=secret \
+        -e CS_SECRET_KEY=secret \
+        -e MYSQL_PDNS_NAME=pdns \
+        -e MYSQL_PDNS_HOST=10.252.2.1 \
+        -e MYSQL_PDNS_PORT=3306 \
+        -e MYSQL_PDNS_PASSWORD=secret \
+        -e MYSQL_PDNS_USER=dns \
+        bwsw/cs-powerdns-integration
 ```
 
-Virtual machine series stored into kafka look like:
+View logs with:
 
 ```
-[
-    {
-        "fields": {
-            "cpuTime": 1070.75,
-            "cpus": 4
-        },
-        "measurement": "cpuTime",
-        "tags": {
-            "vmHost": "qemu+ssh://root@10.252.1.33/system",
-            "vmId": "i-376-1733-VM",
-            "vmUuid": "12805898-0fda-4fa6-9f18-fac64f673679"
-        },
-        "time": "2018-08-17T09:00:35Z"
-    },
-    {
-        "fields": {
-            "maxmem": 4194304,
-            "mem": 4194304,
-            "rss": 1443428
-        },
-        "measurement": "rss",
-        "tags": {
-            "vmHost": "qemu+ssh://root@10.252.1.33/system",
-            "vmId": "i-376-1733-VM",
-            "vmUuid": "12805898-0fda-4fa6-9f18-fac64f673679"
-        },
-        "time": "2018-08-17T09:00:35Z"
-    },
-    {
-        "fields": {
-            "readBytes": 111991494,
-            "readDrops": 0,
-            "readErrors": 0,
-            "readPackets": 1453303,
-            "writeBytes": 3067403974,
-            "writeDrops": 0,
-            "writeErrors": 0,
-            "writePackets": 588124
-        },
-        "measurement": "networkInterface",
-        "tags": {
-            "mac": "06:f2:64:00:01:54",
-            "vmHost": "qemu+ssh://root@10.252.1.33/system",
-            "vmId": "i-376-1733-VM",
-            "vmUuid": "12805898-0fda-4fa6-9f18-fac64f673679"
-        },
-        "time": "2018-08-17T09:00:35Z"
-    },
-    {
-        "fields": {
-            "allocatedSpace": 890,
-            "ioErrors": -1,
-            "onDiskSpace": 890,
-            "readBytes": 264512607744,
-            "readIOPS": 16538654,
-            "totalSpace": 1000,
-            "writeBytes": 930057794560,
-            "writeIOPS": 30476842
-        },
-        "measurement": "disk",
-        "tags": {
-            "image": "cc8121ef-2029-4f4f-826e-7c4f2c8a5563",
-            "pool": "b13cb3c0-c84d-334c-9fc3-4826ae58d984",
-            "vmHost": "qemu+ssh://root@10.252.1.33/system",
-            "vmId": "i-376-1733-VM",
-            "vmUuid": "12805898-0fda-4fa6-9f18-fac64f673679"
-        },
-        "time": "2018-08-17T09:00:35Z"
-    }
-]
+docker logs -f dns-exporter
+```
+
+**Test it**. Create VM and ensure appropriate records are accessible:
 
 ```
+nslookup -q=PTR -port=153 <vm_ipv4> 10.252.2.4
+nslookup -q=PTR -port=153 <vm_ipv6> 10.252.2.4
+nslookup -q=A -port=153 vm-name.domain-name 10.252.2.4
+nslookup -q=AAAA -port=153 vm-name.domain-name 10.252.2.4
+```
+
+> You can modify records further as they are not modified by the script after creation until VM removal. As for current implementation, modified records are persistent and are not removed upon VM removal.
+
+**Scale**. Deploy second PowerDNS. Use another ```KAFKA_GROUP``` value for second exporter.
+
+**Delegate**. Add necessary NS records into zone, delegate it, add records in RIPE/IANA/APNIC/etc DB. 
 
 ## License
 

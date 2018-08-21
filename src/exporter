@@ -34,7 +34,6 @@ cs_secret_key = os.environ['CS_SECRET_KEY']
 
 pdns_conn = MySQLdb.connect(host = mysql_pdns_host, port = mysql_pdns_port,
                             user = mysql_pdns_user, passwd = mysql_pdns_password, db = mysql_pdns_name)
-
 pdns_conn.autocommit(True)
 
 pdns_cursor = pdns_conn.cursor()
@@ -154,6 +153,7 @@ def delete_removed_records(m):
         c.execute("DELETE FROM cs_mapping WHERE uuid = %s", (vm_uuid,))
 
 for m in consumer:
+    pdns_conn.ping()
     m = m.value
     create_new_records(m)
     delete_removed_records(m)

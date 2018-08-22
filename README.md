@@ -68,6 +68,8 @@ nslookup -q=PTR -port=153 <vm_ipv4> 10.252.2.4
 nslookup -q=PTR -port=153 <vm_ipv6> 10.252.2.4
 nslookup -q=A -port=153 vm-name.domain-name 10.252.2.4
 nslookup -q=AAAA -port=153 vm-name.domain-name 10.252.2.4
+nslookup -q=A -port=153 vm-name.common-zone-domain-name 10.252.2.4
+nslookup -q=AAAA -port=153 vm-name.common-zone-domain-name 10.252.2.4
 ```
 
 > You can modify records further as they are not modified by the script after creation until VM removal. As for current implementation, modified records are persistent and are not removed upon VM removal.

@@ -49,6 +49,7 @@ docker run --restart=always -d --name dns-exporter  \
         -e MYSQL_PDNS_PORT=3306 \
         -e MYSQL_PDNS_PASSWORD=secret \
         -e MYSQL_PDNS_USER=dns \
+        -e DNS_RECORD_TTL=60 \
         bwsw/cs-powerdns-integration
 ```
 

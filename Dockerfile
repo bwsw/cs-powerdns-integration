@@ -2,13 +2,9 @@ FROM ubuntu:16.04
 
 MAINTAINER Bitworks Software info@bitworks.software
 
-ENV KVM_HOST qemu+tcp://root@10.252.1.35:16509/system
 ENV KAFKA_BOOTSTRAP localhost:9092
-ENV KAFKA_TOPIC kvm-metrics
-
-ENV PAUSE 20
-ENV GATHER_HOST_STATS true
-ENV DEBUG true
+ENV KAFKA_TOPIC cs-events
+ENV DNS_RECORD_TTL 60
 
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 

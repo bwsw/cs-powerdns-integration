@@ -32,6 +32,8 @@ cs_endpoint = os.environ['CS_ENDPOINT']
 cs_api_key = os.environ['CS_API_KEY']
 cs_secret_key = os.environ['CS_SECRET_KEY']
 
+dns_record_ttl = os.environ['DNS_RECORD_TTL']
+
 pdns_conn = MySQLdb.connect(host = mysql_pdns_host, port = mysql_pdns_port,
                             user = mysql_pdns_user, passwd = mysql_pdns_password, db = mysql_pdns_name)
 pdns_conn.autocommit(True)
@@ -56,7 +58,7 @@ def create_new_records(m):
     msv = "SUCCEEDED"
     jr = "jobResult"
 
-    ttl = 60
+    ttl = dns_record_ttl
 
     if mct in m and ms in m and m[mct].lower() == mcv.lower() and m[ms].lower() == msv.lower():
         job_result = m[jr]

@@ -4,7 +4,10 @@ MAINTAINER Bitworks Software info@bitworks.software
 
 ENV KAFKA_BOOTSTRAP localhost:9092
 ENV KAFKA_TOPIC cs-events
+
 ENV DNS_RECORD_TTL 60
+ENV DNS_COMMON_ZONE cloud.com
+ENV DNS_ADD_TO_COMMON_ZONE false
 
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 

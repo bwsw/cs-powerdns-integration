@@ -50,6 +50,8 @@ docker run --restart=always -d --name dns-exporter  \
         -e MYSQL_PDNS_PASSWORD=secret \
         -e MYSQL_PDNS_USER=dns \
         -e DNS_RECORD_TTL=60 \
+        -e DNS_COMMON_ZONE=vms.cloud.com \
+        -e DNS_ADD_TO_COMMON_ZONE=true \
         bwsw/cs-powerdns-integration
 ```
 

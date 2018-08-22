@@ -33,6 +33,8 @@ cs_api_key = os.environ['CS_API_KEY']
 cs_secret_key = os.environ['CS_SECRET_KEY']
 
 dns_record_ttl = os.environ['DNS_RECORD_TTL']
+dns_common_zone = os.environ['DNS_COMMON_ZONE']
+dns_add_to_common_zone = os.environ['DNS_ADD_TO_COMMON_ZONE']
 
 pdns_conn = MySQLdb.connect(host = mysql_pdns_host, port = mysql_pdns_port,
                             user = mysql_pdns_user, passwd = mysql_pdns_password, db = mysql_pdns_name)
@@ -102,7 +104,22 @@ def create_new_records(m):
             if ip6_address is not None:
                 c.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'AAAA', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (fqdn, ip6_address, ttl, vm_name, domain_id))
 
-        c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, fqdn))
+            c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, fqdn))
+
+
+        if dns_add_to_common_zone == 'true':
+            fqdn_common = "%s.%s" % (vm_name, dns_common_zone)
+            c.execute("SELECT id FROM domains WHERE name = %s", (dns_common_zone, ))
+            row = c.fetchone()
+            if row is not None:
+                domain_id = row[0]
+                c.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'A', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (fqdn_common, ip_address, ttl, vm_name, domain_id))
+                if ip6_address is not None:
+                    c.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'AAAA', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (fqdn_common, ip6_address, ttl, vm_name, domain_id))
+
+                c.execute("""INSERT INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm_uuid, fqdn_common))
+
+
 
 
         # Add PTR records

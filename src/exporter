@@ -42,7 +42,8 @@ pdns_cursor.execute("CREATE TABLE IF NOT EXISTS cs_mapping(uuid CHAR(36), record
 consumer = KafkaConsumer(kafka_topic,
                          group_id = kafka_group,
                          bootstrap_servers = kafka_bootstrap_hosts.split(","),
-                         value_deserializer = lambda m: json.loads(m.decode('utf8')))
+                         value_deserializer = lambda m: json.loads(m.decode('utf8')),
+                         enable_auto_commit = False)
 
 cs = CloudStack(endpoint = cs_endpoint,
                 key = cs_api_key,
@@ -159,3 +160,4 @@ for m in consumer:
     m = m.value
     create_new_records(m)
     delete_removed_records(m)
+    consumer.commit()

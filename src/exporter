@@ -121,7 +121,7 @@ def create_new_records(m):
 
         # Add PTR records
         update_ptr_zone(c, vm)
-	pdns_conn.commit()
+        pdns_conn.commit()
         c.close()
 
 
@@ -140,7 +140,7 @@ def delete_removed_records(m):
             logging.info("Deleting DNS entries: %s" % r[0])
             c.execute("DELETE FROM records WHERE name = %s", r)
         c.execute("DELETE FROM cs_mapping WHERE uuid = %s", (vm_uuid,))
-	pdns_conn.commit()
+        pdns_conn.commit()
         c.close()
 
 for m in consumer:

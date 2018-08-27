@@ -12,14 +12,13 @@ ENV DNS_ADD_TO_COMMON_ZONE false
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y -q python-pip python-dev libmysqlclient-dev python-mysqldb
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y -q python-pip python-dev libmysqlclient-dev python-mysql.connector
 RUN pip install --upgrade pip
 RUN pip install kafka-python
 RUN pip install cs
 RUN pip install ipaddress
 
 COPY ./src /opt
-
 
 WORKDIR /opt
 

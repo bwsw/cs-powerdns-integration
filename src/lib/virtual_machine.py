@@ -47,6 +47,8 @@ class VirtualMachine:
     def _ip4_ptr(self):
         # Add PTR records
         # build ptr for ip address
+        if not self.ip4:
+            return
         ip_parts = self.ip4.split('.')
         ip_parts.reverse()
         self.ip4_ptr_zone = ".".join(ip_parts[1:]) + ".in-addr.arpa"

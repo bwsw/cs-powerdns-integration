@@ -143,9 +143,10 @@ def delete_removed_records(m):
         pdns_conn.commit()
         c.close()
 
-for m in consumer:
-    pdns_conn.ping()
-    m = m.value
-    create_new_records(m)
-    delete_removed_records(m)
-    consumer.commit()
+if __name__ == "__main__":
+    for m in consumer:
+        pdns_conn.ping()
+        m = m.value
+        create_new_records(m)
+        delete_removed_records(m)
+        consumer.commit()

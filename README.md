@@ -1,6 +1,8 @@
 # CloudStack Event-based Integration for PowerDNS
 
-The service creates A, AAAA and PTR records in PowerDNS for newly created virtual machines and removes those records when VMs are being removed. The service uses PowerDNS with MySQL backend. Currently only records for ip/ipv6 directly attached to VM is supported. Domain suffixes defined for CloudStack domains are supported. Resulting A, AAAA records a constructed as vm-name.domain-suffix-name, where ```domain-suffix-name``` is a domain suffix defined for CloudStack domain.
+The service creates A, AAAA and PTR records in PowerDNS for newly created virtual machines and removes those records when VMs are being removed. The service uses PowerDNS with MySQL backend. Currently, only records for IP/IPv6 directly attached to VMs are supported. Domain suffixes defined for CloudStack domains are supported, Domain suffixes defined for CloudStack accounts are supported. Resulting A, AAAA records a constructed as vm-name.domain-suffix-name, where ```domain-suffix-name``` is a domain's domain name suffix or account's domain name suffix defined for the CloudStack domain.
+
+The service also supports group-based A, AAAA records which help to create fault-tolerant, load-balanced services with DNS and CDN providers like CloudFlare.
 
 ## Supported CS versions
 
@@ -10,6 +12,40 @@ Next CS versions are known to work:
 ## Rationale
 
 CloudStack VR maintains DNS A records for VMs but since VR is a ephemeral entity which can be removed and recreated, which IP addresses can be changed, it's inconvenient to use it for zone delegation. Also, it's difficult to pair second DNS server with it as it requires VR hacking. So, to overcome those difficulties and provide external users with FQDN access to VMs we implemented the solution.
+
+## A, AAAA assignment Logic
+
+The zone choice logic is implemented as follows:
+1. If an account has defined network domain, then A, AAAA records will be created for account's domain name, **step 2 will be skipped**.
+2. If CS account domain has defined network domain, then A, AAAA records will be created for domain's domain name.
+3. If `DNS_COMMON_ZONE` is defined and `DNS_ADD_TO_COMMON_ZONE` is `true`, then A, AAA records will be added to that zone.
+
+## Host Groups A, AAAA records Logic
+
+CloudStack supports so-called host groups which can be defined when you create a host. The service enables the usage of groups to define additional A, AAAA records which return multiple hosts for the same domain name.
+
+The logic is implemented as follows:
+1. A group name is cleaned from unsafe characters, so only the following are kept: `0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`.
+2. If the resulting name is empty, no group-based records will be created, if not next steps go.
+3. From account UUID first 8 chars are cut to create a unique ID for the group and protect the group from other accounts.
+4. Safe group name joined with account unique hash with '-'.
+
+Example:
+
+```
+group = www
+account uuid = edd2ab05-98ba-4b65-b94f-14ec595e37a3
+domain_suffix = 'domain.com'
+resulting group name = www-edd2ab05.domain.com
+```
+
+The creation of multiple hosts with the same group name results to multiple A,AAAA records defined for the group.
+
+### CloudFlare Example Usage
+
+To use group records in the CloudFlare, just add CNAME to group FQDN `www-edd2ab05.domain.com` and that's it. CloudFlare automatically manages when new records occur or removed, when backend servers are unavailable and become available again, so it effectively does load balancing among existing servers.
+
+This approach provides the efficient and very easy way to scale services up and down without using sophisticated hardware.
 
 ## How to use it
 

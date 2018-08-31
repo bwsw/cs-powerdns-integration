@@ -8,13 +8,31 @@ class VirtualMachine:
         self.name = vm_info['name'].lower()
         self.uuid = vm_info['id'].lower()
         self.domain = self._domain()
-	self.nic0 = self._vm_info['nic'][0]
+        self.nic0 = self._vm_info['nic'][0]
         self.ip4 = self._ip4()
+        self.group = self._group()
         self._ip6()
         self._ip4_ptr()
-	self._ip6_ptr()
+        self._ip6_ptr()
         self.fqdn = "%s.%s" % (self.name, self.domain)
 
+    def group_fqdn(self, account, domain):
+        if self.group:
+            safe_name = set("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            name = filter(lambda x: x in safe_name, self.group)
+            if len(name):
+                return name + "-" + account.uuid[0:8] + "." + domain
+            else:
+                return None
+        else:
+            return None
+
+
+    def _group(self):
+        if 'group' not in self._vm_info:
+            return None
+        else:
+            return self._vm_info['group']
 
     def _domain(self):
         domain = self.csapi.listDomains(id = self._vm_info['domainid'])

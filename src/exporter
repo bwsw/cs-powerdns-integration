@@ -16,6 +16,7 @@ from kafka.errors import KafkaError
 import mysql.connector
 from cs import CloudStack
 from lib.virtual_machine import VirtualMachine
+from lib.account import Account
 
 FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(format=FORMAT, stream=sys.stderr, level=logging.INFO)
@@ -42,7 +43,7 @@ pdns_conn = mysql.connector.connect(host = mysql_pdns_host, port = mysql_pdns_po
                             user = mysql_pdns_user, passwd = mysql_pdns_password, database = mysql_pdns_name)
 
 pdns_cursor = pdns_conn.cursor()
-pdns_cursor.execute("CREATE TABLE IF NOT EXISTS cs_mapping(uuid CHAR(36), record VARCHAR(255), UNIQUE(uuid, record))");
+pdns_cursor.execute("CREATE TABLE IF NOT EXISTS cs_mapping(uuid CHAR(36), record VARCHAR(255), ipaddress CHAR(39), UNIQUE(uuid, record, ipaddress))");
 pdns_conn.commit()
 
 pdns_cursor.close()
@@ -61,7 +62,8 @@ def extract_create_payload(job_result):
     job_result = job_result.replace("org.apache.cloudstack.api.response.UserVmResponse/virtualmachine/", "", 1)
     return json.loads(job_result)
 
-def update_a_zone(cursor, vm, domain):
+
+def update_a_zone(cursor, account, vm, domain):
     cursor.execute("SELECT id FROM domains WHERE name = %s", (domain, ))
     fqdn = vm.name + "." + domain
     row = cursor.fetchone()
@@ -71,6 +73,15 @@ def update_a_zone(cursor, vm, domain):
         if vm.ip6 is not None:
             cursor.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'AAAA', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (fqdn, vm.ip6, dns_record_ttl, vm.name, domain_id))
         cursor.execute("""INSERT IGNORE INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm.uuid, fqdn))
+
+        group_fqdn = vm.group_fqdn(account, domain)
+        if group_fqdn:
+            logging.info("Group FQDN: %s" % group_fqdn)
+            cursor.execute("""INSERT INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'A', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (group_fqdn, vm.ip4, dns_record_ttl, vm.name, domain_id))
+            cursor.execute("""INSERT IGNORE INTO cs_mapping (uuid, record, ipaddress) VALUES (%s,%s,%s)""", (vm.uuid, group_fqdn,vm.ip4))
+            if vm.ip6 is not None:
+                cursor.execute("""INSERT INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'AAAA', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (group_fqdn, vm.ip6, dns_record_ttl, vm.name, domain_id))
+                cursor.execute("""INSERT IGNORE INTO cs_mapping (uuid, record, ipaddress) VALUES (%s,%s,%s)""", (vm.uuid, group_fqdn,vm.ip6))
 
 
 def update_ptr_zone(cursor, vm):
@@ -98,8 +109,10 @@ def create_new_records(m):
     jr = "jobResult"
 
     if mct in m and ms in m and m[mct].lower() == mcv.lower() and m[ms].lower() == msv.lower():
+        account = Account(
+                cs_api = cs,
+                cmd_info = m)
         job_result = extract_create_payload(m[jr])
-
         vm = VirtualMachine(
                 cs_api = cs,
                 vm_info = job_result)
@@ -115,9 +128,13 @@ def create_new_records(m):
         c.execute("DELETE FROM records WHERE name = %s", (vm.fqdn,))
 
         # Add A, AAAA records
-        update_a_zone(c, vm, vm.domain)
+        update_a_zone(c, account, vm, vm.domain)
+
         if dns_add_to_common_zone == 'true':
-            update_a_zone(c, vm, dns_common_zone)
+            update_a_zone(c, account, vm, dns_common_zone)
+
+        if account.network_domain:
+            update_a_zone(c, account, vm, account.network_domain)
 
         # Add PTR records
         update_ptr_zone(c, vm)
@@ -134,11 +151,14 @@ def delete_removed_records(m):
     if vm_field in m and status_field in m and event_field in m and m[status_field].lower() == status_value.lower() and m[event_field].lower() == event_value.lower():
         vm_uuid = m[vm_field].lower()
         c = pdns_conn.cursor()
-        c.execute("SELECT record FROM cs_mapping where uuid = %s", (vm_uuid,))
+        c.execute("SELECT record, ipaddress FROM cs_mapping where uuid = %s", (vm_uuid,))
         rows = c.fetchall()
         for r in rows:
-            logging.info("Deleting DNS entries: %s" % r[0])
-            c.execute("DELETE FROM records WHERE name = %s", r)
+            logging.info("Deleting DNS entries: record=%s, ipaddress=%s" % r)
+            if r[1]:
+                c.execute("DELETE FROM records WHERE name = %s AND content = %s", r)
+            else:
+                c.execute("DELETE FROM records WHERE name = %s", (r[0],))
         c.execute("DELETE FROM cs_mapping WHERE uuid = %s", (vm_uuid,))
         pdns_conn.commit()
         c.close()

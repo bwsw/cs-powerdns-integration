@@ -10,9 +10,13 @@ import re
 import json
 import os
 import traceback
+from signal import SIGKILL
 from datetime import datetime
 from kafka import KafkaConsumer
 from kafka.errors import KafkaError
+from multiprocessing import Process
+from multiprocessing import Queue
+from Queue import Empty
 import mysql.connector
 from cs import CloudStack
 from lib.virtual_machine import VirtualMachine
@@ -39,8 +43,14 @@ dns_record_ttl = os.environ['DNS_RECORD_TTL']
 dns_common_zone = os.environ['DNS_COMMON_ZONE']
 dns_add_to_common_zone = os.environ['DNS_ADD_TO_COMMON_ZONE']
 
-pdns_conn = mysql.connector.connect(host = mysql_pdns_host, port = mysql_pdns_port,
+deadlock_interval = os.environ['DEADLOCK_INTERVAL']
+
+
+def get_mysql():
+    return mysql.connector.connect(host = mysql_pdns_host, port = mysql_pdns_port,
                             user = mysql_pdns_user, passwd = mysql_pdns_password, database = mysql_pdns_name)
+
+pdns_conn = get_mysql()
 
 pdns_cursor = pdns_conn.cursor()
 pdns_cursor.execute("CREATE TABLE IF NOT EXISTS cs_mapping(uuid CHAR(36), record VARCHAR(255), ipaddress CHAR(39), UNIQUE(uuid, record, ipaddress))");
@@ -163,10 +173,26 @@ def delete_removed_records(m):
         pdns_conn.commit()
         c.close()
 
-if __name__ == "__main__":
+def monitor(q, pid):
+    while True:
+        try:
+            q.get(timeout = int(deadlock_interval))
+        except Empty:
+            break
+    logging.info("No events in %s seconds. May be internal deadlock happened. Reset the system." % deadlock_interval)
+    os.kill(pid, SIGKILL)
+    exit(0)
+
+if __name__ == '__main__':
+    q = Queue()
+    pid = os.getpid()
+    mon = Process(target=monitor, args=(q,pid))
+    mon.start()
+
     for m in consumer:
         pdns_conn.ping()
         m = m.value
         create_new_records(m)
         delete_removed_records(m)
         consumer.commit()
+        q.put(m)

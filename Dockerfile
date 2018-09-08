@@ -9,6 +9,8 @@ ENV DNS_RECORD_TTL 60
 ENV DNS_COMMON_ZONE cloud.com
 ENV DNS_ADD_TO_COMMON_ZONE false
 
+ENV DEADLOCK_INTERVAL 60
+
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update

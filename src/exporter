@@ -190,16 +190,15 @@ if __name__ == '__main__':
     mon = Process(target=monitor, args=(q,pid))
     mon.start()
     while True:
-	msgs = consumer.poll(1000, 10)
-	if bool(msgs):
-	    msgs = msgs[TopicPartition(topic=kafka_topic, partition=0)]
-	    logging.info("Fetched %d messages" % len(msgs))
-	    for m in msgs:
-    		m = m.value
-		try:
-        	    create_new_records(m)
-        	    delete_removed_records(m)
-    		except CloudStackException:
-        	    pass
-    		consumer.commit()
-    		q.put(m)
+        msgs = consumer.poll(1000, 10)
+        if bool(msgs):
+            msgs = msgs[TopicPartition(topic=kafka_topic, partition=0)]
+            for m in msgs:
+                m = m.value
+                try:
+                    create_new_records(m)
+                    delete_removed_records(m)
+                except CloudStackException:
+                    pass
+                consumer.commit()
+                q.put(m)

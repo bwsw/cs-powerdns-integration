@@ -21,7 +21,7 @@ class VirtualMachine:
             safe_name = set("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
             name = filter(lambda x: x in safe_name, self.group)
             if len(name):
-                return name + "-" + account.uuid[0:8] + "." + domain
+                return name.lower() + "-" + account.uuid[0:8] + "." + domain
             else:
                 return None
         else:

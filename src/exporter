@@ -57,6 +57,7 @@ pdns_cursor.execute("CREATE TABLE IF NOT EXISTS cs_mapping(uuid CHAR(36), record
 pdns_conn.commit()
 
 pdns_cursor.close()
+pdns_conn.close()
 
 consumer = KafkaConsumer(kafka_topic,
                          auto_offset_reset='earliest',
@@ -196,8 +197,10 @@ if __name__ == '__main__':
             for m in msgs:
                 m = m.value
                 try:
+                    pdns_conn = get_mysql()
                     create_new_records(m)
                     delete_removed_records(m)
+                    pdns_conn.close()
                 except CloudStackException:
                     pass
                 consumer.commit()

@@ -201,7 +201,7 @@ if __name__ == '__main__':
                     create_new_records(m)
                     delete_removed_records(m)
                     pdns_conn.close()
+                    consumer.commit()
                 except CloudStackException:
                     pass
-                consumer.commit()
                 q.put(m)

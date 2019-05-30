@@ -1,0 +1,4 @@
+cs
+kafka
+mysql-connector
+ipaddress

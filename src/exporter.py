@@ -2,18 +2,14 @@
 # -*- coding: UTF-8 -*-
 
 import sys
+
 sys.path.append(".")
 
 import logging
-import datetime
-import re
 import json
 import os
-import traceback
 from signal import SIGKILL
-from datetime import datetime
 from kafka import KafkaConsumer, TopicPartition
-from kafka.errors import KafkaError
 from multiprocessing import Process
 from multiprocessing import Queue
 from Queue import Empty
@@ -47,13 +43,16 @@ deadlock_interval = os.environ['DEADLOCK_INTERVAL']
 
 
 def get_mysql():
-    return mysql.connector.connect(host = mysql_pdns_host, port = mysql_pdns_port,
-                            user = mysql_pdns_user, passwd = mysql_pdns_password, database = mysql_pdns_name)
+    return mysql.connector.connect(host=mysql_pdns_host, port=mysql_pdns_port,
+                                   user=mysql_pdns_user, passwd=mysql_pdns_password, database=mysql_pdns_name)
+
 
 pdns_conn = get_mysql()
 
 pdns_cursor = pdns_conn.cursor()
-pdns_cursor.execute("CREATE TABLE IF NOT EXISTS cs_mapping(uuid CHAR(36), record VARCHAR(255), ipaddress CHAR(39), UNIQUE(uuid, record, ipaddress))");
+pdns_cursor.execute(
+    "CREATE TABLE IF NOT EXISTS cs_mapping(uuid CHAR(36), record VARCHAR(255), ipaddress CHAR(39), "
+    "UNIQUE(uuid, record, ipaddress))")
 pdns_conn.commit()
 
 pdns_cursor.close()
@@ -61,14 +60,15 @@ pdns_conn.close()
 
 consumer = KafkaConsumer(kafka_topic,
                          auto_offset_reset='earliest',
-                         group_id = kafka_group,
-                         bootstrap_servers = kafka_bootstrap_hosts.split(","),
-                         value_deserializer = lambda m: json.loads(m.decode('utf8')),
-                         enable_auto_commit = False)
+                         group_id=kafka_group,
+                         bootstrap_servers=kafka_bootstrap_hosts.split(","),
+                         value_deserializer=lambda m: json.loads(m.decode('utf8')),
+                         enable_auto_commit=False)
 
-cs = CloudStack(endpoint = cs_endpoint,
-                key = cs_api_key,
-                secret = cs_secret_key)
+cs = CloudStack(endpoint=cs_endpoint,
+                key=cs_api_key,
+                secret=cs_secret_key)
+
 
 def extract_create_payload(job_result):
     job_result = job_result.replace("org.apache.cloudstack.api.response.UserVmResponse/virtualmachine/", "", 1)
@@ -76,57 +76,89 @@ def extract_create_payload(job_result):
 
 
 def update_a_zone(cursor, account, vm, domain):
-    cursor.execute("SELECT id FROM domains WHERE name = %s", (domain, ))
+    cursor.execute("SELECT id FROM domains WHERE name = %s", (domain,))
     fqdn = vm.name + "." + domain
     row = cursor.fetchone()
     if row is not None:
         domain_id = row[0]
-        cursor.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'A', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (fqdn, vm.ip4, dns_record_ttl, vm.name, domain_id))
+        cursor.execute(
+            """REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) 
+            VALUES (%s, 'A', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""",
+            (fqdn, vm.ip4, dns_record_ttl, vm.name, domain_id))
         if vm.ip6 is not None:
-            cursor.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'AAAA', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (fqdn, vm.ip6, dns_record_ttl, vm.name, domain_id))
+            cursor.execute(
+                """REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) 
+                VALUES (%s, 'AAAA', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""",
+                (fqdn, vm.ip6, dns_record_ttl, vm.name, domain_id))
         cursor.execute("""INSERT IGNORE INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm.uuid, fqdn))
 
         group_fqdn = vm.group_fqdn(account, domain)
         if group_fqdn:
             logging.info("Group FQDN: %s" % group_fqdn)
-            cursor.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'A', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (group_fqdn, vm.ip4, dns_record_ttl, vm.name, domain_id))
-            cursor.execute("""INSERT IGNORE INTO cs_mapping (uuid, record, ipaddress) VALUES (%s,%s,%s)""", (vm.uuid, group_fqdn,vm.ip4))
+            cursor.execute(
+                """REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) 
+                VALUES (%s, 'A', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""",
+                (group_fqdn, vm.ip4, dns_record_ttl, vm.name, domain_id))
+            cursor.execute("""INSERT IGNORE INTO cs_mapping (uuid, record, ipaddress) VALUES (%s,%s,%s)""",
+                           (vm.uuid, group_fqdn, vm.ip4))
             if vm.ip6 is not None:
-                cursor.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) VALUES (%s, 'AAAA', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""", (group_fqdn, vm.ip6, dns_record_ttl, vm.name, domain_id))
-                cursor.execute("""INSERT IGNORE INTO cs_mapping (uuid, record, ipaddress) VALUES (%s,%s,%s)""", (vm.uuid, group_fqdn,vm.ip6))
+                cursor.execute(
+                    """REPLACE INTO records (name, type, content, ttl, prio, change_date, ordername, auth, domain_id) 
+                    VALUES (%s, 'AAAA', %s, %s, 0, UNIX_TIMESTAMP(), %s, 1, %s)""",
+                    (group_fqdn, vm.ip6, dns_record_ttl, vm.name, domain_id))
+                cursor.execute("""INSERT IGNORE INTO cs_mapping (uuid, record, ipaddress) VALUES (%s,%s,%s)""",
+                               (vm.uuid, group_fqdn, vm.ip6))
 
 
 def update_ptr_zone(cursor, vm):
-    cursor.execute("SELECT id FROM domains WHERE name = %s", (vm.ip4_ptr_zone, ))
+    cursor.execute("SELECT id FROM domains WHERE name = %s", (vm.ip4_ptr_zone,))
     row = cursor.fetchone()
     if row is not None:
         domain_id = row[0]
-        cursor.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, auth, domain_id) VALUES (%s, 'PTR', %s, %s, 0, UNIX_TIMESTAMP(), 1, %s)""", (vm.ip4_ptr, vm.fqdn, dns_record_ttl, domain_id))
+        cursor.execute(
+            """REPLACE INTO records (name, type, content, ttl, prio, change_date, auth, domain_id) 
+            VALUES (%s, 'PTR', %s, %s, 0, UNIX_TIMESTAMP(), 1, %s)""",
+            (vm.ip4_ptr, vm.fqdn, dns_record_ttl, domain_id))
         cursor.execute("""INSERT IGNORE INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm.uuid, vm.ip4_ptr))
 
     if vm.ip6 is not None:
-        cursor.execute("SELECT id FROM domains WHERE name = %s", (vm.ip6_ptr_zone, ))
+        cursor.execute("SELECT id FROM domains WHERE name = %s", (vm.ip6_ptr_zone,))
         row = cursor.fetchone()
         if row is not None:
             domain_id = row[0]
-            cursor.execute("""REPLACE INTO records (name, type, content, ttl, prio, change_date, auth, domain_id) VALUES (%s, 'PTR', %s, %s, 0, UNIX_TIMESTAMP(), 1, %s)""", (vm.ip6_ptr, vm.fqdn, dns_record_ttl, domain_id))
+            cursor.execute(
+                """REPLACE INTO records (name, type, content, ttl, prio, change_date, auth, domain_id) 
+                VALUES (%s, 'PTR', %s, %s, 0, UNIX_TIMESTAMP(), 1, %s)""",
+                (vm.ip6_ptr, vm.fqdn, dns_record_ttl, domain_id))
             cursor.execute("""INSERT IGNORE INTO cs_mapping (uuid, record) VALUES(%s,%s)""", (vm.uuid, vm.ip6_ptr))
 
 
 def create_new_records(m):
-    mct = "commandEventType"
-    mcv = "VM.CREATE"
-    ms = "status"
-    msv = "SUCCEEDED"
     jr = "jobResult"
-    if mct in m and ms in m and m[mct].lower() == mcv.lower() and m[ms].lower() == msv.lower():
+
+    def create_match():
+        return "commandEventType" in m \
+               and "status" in m \
+               and m["commandEventType"].lower() == "VM.CREATE".lower() \
+               and m["status"].lower() == "SUCCEEDED".lower()
+
+    def start_match():
+        return "commandEventType" in m \
+               and "status" in m \
+               and m["commandEventType"].lower() == "VM.START".lower() \
+               and m["status"].lower() == "SUCCEEDED".lower()
+
+    if create_match() or start_match():
+
         account = Account(
-                cs_api = cs,
-                cmd_info = m)
+            cs_api=cs,
+            cmd_info=m)
+
         job_result = extract_create_payload(m[jr])
+
         vm = VirtualMachine(
-                cs_api = cs,
-                vm_info = job_result)
+            cs_api=cs,
+            vm_info=job_result)
 
         if not (vm.domain and vm.ip4):
             return
@@ -147,7 +179,6 @@ def create_new_records(m):
         else:
             update_a_zone(c, account, vm, vm.domain)
 
-
         # Add PTR records
         update_ptr_zone(c, vm)
         pdns_conn.commit()
@@ -155,12 +186,16 @@ def create_new_records(m):
 
 
 def delete_removed_records(m):
-    vm_field     = "VirtualMachine"
+    vm_field = "VirtualMachine"
     status_field = "status"
     status_value = "Completed"
-    event_field  = "event"
-    event_value  = "VM.DESTROY"
-    if vm_field in m and status_field in m and event_field in m and m[status_field].lower() == status_value.lower() and m[event_field].lower() == event_value.lower():
+    event_field = "event"
+    event_value = "VM.DESTROY"
+    if vm_field in m \
+            and status_field in m \
+            and event_field in m \
+            and m[status_field].lower() == status_value.lower() \
+            and m[event_field].lower() == event_value.lower():
         vm_uuid = m[vm_field].lower()
         c = pdns_conn.cursor()
         c.execute("SELECT record, ipaddress FROM cs_mapping where uuid = %s", (vm_uuid,))
@@ -175,20 +210,22 @@ def delete_removed_records(m):
         pdns_conn.commit()
         c.close()
 
+
 def monitor(q, pid):
     while True:
         try:
-            q.get(timeout = int(deadlock_interval))
+            q.get(timeout=int(deadlock_interval))
         except Empty:
             break
     logging.info("No events in %s seconds. May be internal deadlock happened. Reset the system." % deadlock_interval)
     os.kill(pid, SIGKILL)
     exit(0)
 
+
 if __name__ == '__main__':
     q = Queue()
     pid = os.getpid()
-    mon = Process(target=monitor, args=(q,pid))
+    mon = Process(target=monitor, args=(q, pid))
     mon.start()
     while True:
         msgs = consumer.poll(1000, 10)

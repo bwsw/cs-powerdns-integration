@@ -1,6 +1,7 @@
 import logging
 import ipaddress
 
+
 class VirtualMachine:
     def __init__(self, cs_api, vm_info):
         self.csapi = cs_api
@@ -27,7 +28,6 @@ class VirtualMachine:
         else:
             return None
 
-
     def _group(self):
         if 'group' not in self._vm_info:
             return None
@@ -35,7 +35,7 @@ class VirtualMachine:
             return self._vm_info['group']
 
     def _domain(self):
-        domain = self.csapi.listDomains(id = self._vm_info['domainid'])
+        domain = self.csapi.listDomains(id=self._vm_info['domainid'])
         try:
             return domain['domain'][0]['networkdomain'].lower()
         except:

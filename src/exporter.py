@@ -148,7 +148,10 @@ def create_new_records(m):
                and m["commandEventType"].lower() == "VM.START".lower() \
                and m["status"].lower() == "SUCCEEDED".lower()
 
-    if create_match() or start_match():
+    is_create_event = create_match()
+    is_start_event = start_match()
+
+    if is_create_event or is_start_event:
 
         account = Account(
             cs_api=cs,
@@ -179,8 +182,10 @@ def create_new_records(m):
         else:
             update_a_zone(c, account, vm, vm.domain)
 
-        # Add PTR records
-        update_ptr_zone(c, vm)
+        # Add PTR records, except when VM is started
+        if not is_start_event:
+            update_ptr_zone(c, vm)
+
         pdns_conn.commit()
         c.close()
 
